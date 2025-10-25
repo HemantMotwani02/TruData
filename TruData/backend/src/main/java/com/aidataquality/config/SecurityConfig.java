@@ -46,7 +46,7 @@ public class SecurityConfig {
             )
             .headers(headers -> headers
                 .frameOptions(frameOptions -> frameOptions.sameOrigin()) // For H2 console
-                .xssProtection(xss -> xss.headerValue("1; mode=block"))
+                // .xssProtection(xss -> xss.headerValue("1; mode=block"))
                 .contentSecurityPolicy(csp -> 
                     csp.policyDirectives("default-src 'self'; frame-ancestors 'self'")
                 )

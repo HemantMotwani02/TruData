@@ -9,7 +9,12 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Service for profiling data columns
+ * FIXED VERSION - Service for profiling data columns
+ * 
+ * FIXES:
+ * 1. Better date format detection (supports DD-MM-YYYY, DD.MM.YYYY, etc.)
+ * 2. Handles empty data gracefully
+ * 3. Better outlier detection with context
  */
 @Service
 @Slf4j
@@ -20,6 +25,7 @@ public class DataProfilingService {
      */
     public List<ColumnProfile> profileData(List<Map<String, Object>> data) {
         if (data == null || data.isEmpty()) {
+            log.warn("Data is empty, returning empty profile list");
             return Collections.emptyList();
         }
         
@@ -28,9 +34,19 @@ public class DataProfilingService {
         List<ColumnProfile> profiles = new ArrayList<>();
         Set<String> columns = data.get(0).keySet();
         
+        if (columns.isEmpty()) {
+            log.warn("No columns found in data");
+            return Collections.emptyList();
+        }
+        
         for (String column : columns) {
-            ColumnProfile profile = profileColumn(data, column);
-            profiles.add(profile);
+            try {
+                ColumnProfile profile = profileColumn(data, column);
+                profiles.add(profile);
+            } catch (Exception e) {
+                log.error("Error profiling column '{}': {}", column, e.getMessage(), e);
+                // Continue with other columns
+            }
         }
         
         return profiles;
@@ -69,7 +85,7 @@ public class DataProfilingService {
         builder.dataType(dataType);
         
         if ("NUMERIC".equals(dataType)) {
-            computeNumericStatistics(values, builder);
+            computeNumericStatistics(values, builder, columnName);
         } else {
             computeCategoricalStatistics(values, builder);
         }
@@ -82,7 +98,7 @@ public class DataProfilingService {
     }
 
     /**
-     * Infer data type of column
+     * ✅ IMPROVED: Infer data type of column with better date detection
      */
     private String inferDataType(List<Object> values) {
         long numericCount = 0;
@@ -129,17 +145,29 @@ public class DataProfilingService {
     }
 
     /**
-     * Check if value looks like a date
+     * ✅ IMPROVED: Check if value looks like a date - supports more formats
      */
     private boolean isDate(String value) {
-        return value.matches("\\d{4}-\\d{2}-\\d{2}.*") || 
-               value.matches("\\d{2}/\\d{2}/\\d{4}.*");
+        if (value == null || value.trim().isEmpty()) {
+            return false;
+        }
+        
+        // Common date patterns
+        return value.matches("\\d{4}-\\d{2}-\\d{2}.*") ||       // YYYY-MM-DD (ISO)
+               value.matches("\\d{2}/\\d{2}/\\d{4}.*") ||       // MM/DD/YYYY (US)
+               value.matches("\\d{2}-\\d{2}-\\d{4}.*") ||       // DD-MM-YYYY (EU)
+               value.matches("\\d{2}\\.\\d{2}\\.\\d{4}.*") ||   // DD.MM.YYYY (DE)
+               value.matches("\\d{4}/\\d{2}/\\d{2}.*") ||       // YYYY/MM/DD
+               value.matches("\\d{1,2}\\s+\\w+\\s+\\d{4}") ||   // 15 January 2020
+               value.matches("\\w+\\s+\\d{1,2},?\\s+\\d{4}");   // January 15, 2020
     }
 
     /**
-     * Compute numeric statistics
+     * ✅ IMPROVED: Compute numeric statistics with better outlier detection
      */
-    private void computeNumericStatistics(List<Object> values, ColumnProfile.ColumnProfileBuilder builder) {
+    private void computeNumericStatistics(List<Object> values, 
+                                          ColumnProfile.ColumnProfileBuilder builder,
+                                          String columnName) {
         DescriptiveStatistics stats = new DescriptiveStatistics();
         List<Double> numericValues = new ArrayList<>();
         
@@ -176,17 +204,66 @@ public class DataProfilingService {
             double lowerBound = q1 - 1.5 * iqr;
             double upperBound = q3 + 1.5 * iqr;
             
-            List<Object> outliers = numericValues.stream()
-                .filter(v -> v < lowerBound || v > upperBound)
+            // ✅ IMPROVED: Also flag negative values for inherently positive columns
+            List<Object> outliers = new ArrayList<>();
+            for (Double value : numericValues) {
+                boolean isOutlier = value < lowerBound || value > upperBound;
+                
+                // Check for invalid values based on column name
+                boolean isInvalid = isInvalidValueForColumn(columnName, value);
+                
+                if (isOutlier || isInvalid) {
+                    outliers.add(value);
+                }
+            }
+            
+            // Get unique outliers, limited to 10
+            List<Object> uniqueOutliers = outliers.stream()
                 .distinct()
                 .limit(10)
                 .collect(Collectors.toList());
             
-            if (!outliers.isEmpty()) {
+            if (!uniqueOutliers.isEmpty()) {
                 builder.hasOutliers(true)
-                       .outlierValues(outliers);
+                       .outlierValues(uniqueOutliers);
             }
         }
+    }
+
+    /**
+     * ✅ NEW: Check if value is invalid for specific column types
+     */
+    private boolean isInvalidValueForColumn(String columnName, double value) {
+        String lowerColName = columnName.toLowerCase();
+        
+        // Age should be positive and reasonable
+        if (lowerColName.contains("age")) {
+            return value < 0 || value > 150;
+        }
+        
+        // Prices, salaries, costs should be positive
+        if (lowerColName.contains("price") || 
+            lowerColName.contains("salary") ||
+            lowerColName.contains("cost") ||
+            lowerColName.contains("amount")) {
+            return value < 0;
+        }
+        
+        // Counts and quantities should be non-negative
+        if (lowerColName.contains("count") || 
+            lowerColName.contains("quantity") ||
+            lowerColName.contains("number")) {
+            return value < 0;
+        }
+        
+        // Percentages should be 0-100
+        if (lowerColName.contains("percent") || 
+            lowerColName.contains("rate") ||
+            lowerColName.endsWith("%")) {
+            return value < 0 || value > 100;
+        }
+        
+        return false;
     }
 
     /**
@@ -214,7 +291,7 @@ public class DataProfilingService {
     }
 
     /**
-     * Detect quality issues in column
+     * ✅ IMPROVED: Detect quality issues in column
      */
     private List<String> detectQualityIssues(List<Object> values, String dataType, 
                                               long nullCount, long totalCount, long uniqueCount) {
@@ -222,18 +299,33 @@ public class DataProfilingService {
         
         double nullPercentage = totalCount > 0 ? (nullCount * 100.0 / totalCount) : 0.0;
         
+        // Check null percentage
         if (nullPercentage > 50) {
-            issues.add("High null percentage: " + String.format("%.2f%%", nullPercentage));
+            issues.add(String.format("High null percentage: %.2f%% (more than half the data is missing)", nullPercentage));
         } else if (nullPercentage > 20) {
-            issues.add("Moderate null percentage: " + String.format("%.2f%%", nullPercentage));
+            issues.add(String.format("Moderate null percentage: %.2f%% (significant missing data)", nullPercentage));
+        } else if (nullPercentage > 10) {
+            issues.add(String.format("Low null percentage: %.2f%% (some missing data)", nullPercentage));
         }
         
+        // Check for constant columns
         if (uniqueCount == 1 && nullCount == 0) {
-            issues.add("Column has only one unique value (constant column)");
+            issues.add("Column has only one unique value (constant column - may not be useful)");
         }
         
-        if (uniqueCount == totalCount - nullCount && totalCount > 10) {
-            issues.add("All values are unique (possibly an identifier)");
+        // Check for potential identifier columns
+        long nonNullCount = totalCount - nullCount;
+        if (uniqueCount == nonNullCount && totalCount > 10) {
+            issues.add("All non-null values are unique (possibly an identifier or key column)");
+        }
+        
+        // ✅ NEW: Check for very low uniqueness in categorical data
+        if ("CATEGORICAL".equals(dataType) && nonNullCount > 10) {
+            double uniqueRatio = uniqueCount * 1.0 / nonNullCount;
+            if (uniqueRatio < 0.1) {
+                issues.add(String.format("Very low diversity: only %d unique values for %d rows (%.1f%%)", 
+                    uniqueCount, nonNullCount, uniqueRatio * 100));
+            }
         }
         
         return issues;

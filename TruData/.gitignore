@@ -1,0 +1,18 @@
+# Backend
+target/
+logs/
+*.log
+
+# Frontend
+node_modules/
+build/
+dist/
+package-lock.json
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Data files
+*.csv
+*.xlsx
