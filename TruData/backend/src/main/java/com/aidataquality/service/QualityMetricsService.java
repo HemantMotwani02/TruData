@@ -9,13 +9,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * FIXED VERSION - Service for computing data quality metrics
- * 
- * FIXES:
- * 1. Better duplicate detection (partial duplicates, key columns)
- * 2. Proper null handling (empty strings already converted by ingestion)
- * 3. Validity checks actual invalid values
- * 4. Better edge case handling
+ * Service for computing data quality metrics
  */
 @Service
 @Slf4j
@@ -27,22 +21,17 @@ public class QualityMetricsService {
     public QualityMetrics computeMetrics(List<Map<String, Object>> data, 
                                          List<ColumnProfile> columnProfiles,
                                          Map<String, String> schemaDefinition) {
-        if (data == null || data.isEmpty()) {
-            log.warn("Data is empty, returning default metrics");
-            return buildEmptyMetrics();
-        }
-        
-        log.info("Computing quality metrics for dataset with {} rows", data.size());
+        log.info("Computing quality metrics for dataset");
         
         QualityMetrics.QualityMetricsBuilder builder = QualityMetrics.builder();
         
         // Completeness metrics
         computeCompletenessMetrics(data, columnProfiles, builder);
         
-        // Uniqueness metrics (FIXED)
-        computeUniquenessMetrics(data, columnProfiles, builder);
+        // Uniqueness metrics
+        computeUniquenessMetrics(data, builder);
         
-        // Validity metrics (IMPROVED)
+        // Validity metrics
         computeValidityMetrics(data, columnProfiles, schemaDefinition, builder);
         
         // Consistency metrics
@@ -58,34 +47,7 @@ public class QualityMetricsService {
     }
 
     /**
-     * Build default metrics for empty data
-     */
-    private QualityMetrics buildEmptyMetrics() {
-        return QualityMetrics.builder()
-            .completenessScore(0.0)
-            .totalCells(0L)
-            .nullCells(0L)
-            .nullPercentage(100.0)
-            .uniquenessScore(0.0)
-            .totalRows(0L)
-            .duplicateRows(0L)
-            .duplicatePercentage(0.0)
-            .validityScore(0.0)
-            .invalidValues(0L)
-            .invalidPercentage(0.0)
-            .consistencyScore(0.0)
-            .inconsistentValues(0L)
-            .inconsistentPercentage(0.0)
-            .accuracyScore(0.0)
-            .schemaViolations(0L)
-            .timelinessScore(0.0)
-            .hasTemporalData(false)
-            .build();
-    }
-
-    /**
      * Compute completeness metrics
-     * Now properly handles nulls (empty strings already converted to null in ingestion)
      */
     private void computeCompletenessMetrics(List<Map<String, Object>> data,
                                             List<ColumnProfile> columnProfiles,
@@ -106,35 +68,45 @@ public class QualityMetricsService {
                .nullPercentage(nullPercentage)
                .completenessScore(completenessScore);
         
-        log.debug("Completeness score: {} (nulls: {}/{})", completenessScore, nullCells, totalCells);
+        log.debug("Completeness score: {}", completenessScore);
     }
 
     /**
-     * ✅ FIXED: Compute uniqueness metrics with improved duplicate detection
-     * 
-     * Now detects:
-     * 1. Exact duplicates (all columns match)
-     * 2. Key-based duplicates (ID columns match)
-     * 3. Partial duplicates (configurable threshold)
+     * Compute uniqueness metrics (duplicate detection)
      */
     private void computeUniquenessMetrics(List<Map<String, Object>> data,
-                                          List<ColumnProfile> columnProfiles,
                                           QualityMetrics.QualityMetricsBuilder builder) {
         long totalRows = data.size();
         
-        // Detect key columns (id, identifier, etc.)
-        List<String> keyColumns = detectKeyColumns(data, columnProfiles);
-        
+        // FIXED: Key-based duplicate detection (id, email, or all columns)
+        Set<String> uniqueKeys = new HashSet<>();
         long duplicateRows = 0;
         
-        if (!keyColumns.isEmpty()) {
-            // Use key-based duplicate detection
-            duplicateRows = detectKeyBasedDuplicates(data, keyColumns);
-            log.info("Using key-based duplicate detection with columns: {}", keyColumns);
-        } else {
-            // Fall back to exact row duplicate detection
-            duplicateRows = detectExactDuplicates(data);
-            log.info("Using exact row duplicate detection");
+        // Try to find key columns (id, email, etc.)
+        boolean hasIdColumn = data.get(0).containsKey("id") || data.get(0).containsKey("ID");
+        boolean hasEmailColumn = data.get(0).containsKey("email") || data.get(0).containsKey("Email");
+        
+        for (Map<String, Object> row : data) {
+            String keyString;
+            
+            if (hasIdColumn) {
+                // Use id as primary key
+                Object idValue = row.getOrDefault("id", row.get("ID"));
+                keyString = idValue != null ? idValue.toString() : "null";
+            } else if (hasEmailColumn) {
+                // Use email as key
+                Object emailValue = row.getOrDefault("email", row.get("Email"));
+                keyString = emailValue != null ? emailValue.toString() : "null";
+            } else {
+                // Fall back to full row comparison
+                keyString = row.values().stream()
+                    .map(v -> v != null ? v.toString() : "null")
+                    .collect(Collectors.joining("|"));
+            }
+            
+            if (!uniqueKeys.add(keyString)) {
+                duplicateRows++;
+            }
         }
         
         double duplicatePercentage = totalRows > 0 ? (duplicateRows * 100.0 / totalRows) : 0.0;
@@ -145,98 +117,11 @@ public class QualityMetricsService {
                .duplicatePercentage(duplicatePercentage)
                .uniquenessScore(uniquenessScore);
         
-        log.debug("Uniqueness score: {} (duplicates: {}/{})", uniquenessScore, duplicateRows, totalRows);
+        log.debug("Uniqueness score: {} (found {} duplicates)", uniquenessScore, duplicateRows);
     }
 
     /**
-     * Detect key columns (id, identifier, primary key, etc.)
-     */
-    private List<String> detectKeyColumns(List<Map<String, Object>> data, 
-                                           List<ColumnProfile> columnProfiles) {
-        List<String> keyColumns = new ArrayList<>();
-        
-        if (data.isEmpty()) return keyColumns;
-        
-        Set<String> allColumns = data.get(0).keySet();
-        
-        for (String column : allColumns) {
-            String lowerCol = column.toLowerCase();
-            
-            // Check if column name suggests it's a key
-            if (lowerCol.equals("id") || 
-                lowerCol.equals("identifier") || 
-                lowerCol.endsWith("_id") ||
-                lowerCol.equals("key") ||
-                lowerCol.equals("pk") ||
-                lowerCol.equals("primary_key")) {
-                keyColumns.add(column);
-            }
-        }
-        
-        // If no obvious key columns, look for columns that are mostly unique
-        if (keyColumns.isEmpty()) {
-            for (ColumnProfile profile : columnProfiles) {
-                // If column has >90% unique values and low nulls, might be a key
-                if (profile.getUniquePercentage() > 90 && profile.getNullPercentage() < 10) {
-                    keyColumns.add(profile.getColumnName());
-                }
-            }
-        }
-        
-        return keyColumns;
-    }
-
-    /**
-     * Detect duplicates based on key columns
-     */
-    private long detectKeyBasedDuplicates(List<Map<String, Object>> data, List<String> keyColumns) {
-        Set<String> uniqueKeys = new HashSet<>();
-        long duplicateCount = 0;
-        
-        for (Map<String, Object> row : data) {
-            // Build key from specified columns
-            StringBuilder keyBuilder = new StringBuilder();
-            for (String keyCol : keyColumns) {
-                Object value = row.get(keyCol);
-                keyBuilder.append(value != null ? value.toString() : "null").append("|");
-            }
-            String key = keyBuilder.toString();
-            
-            if (!uniqueKeys.add(key)) {
-                duplicateCount++;
-            }
-        }
-        
-        return duplicateCount;
-    }
-
-    /**
-     * Detect exact duplicate rows (all columns must match)
-     */
-    private long detectExactDuplicates(List<Map<String, Object>> data) {
-        Set<String> uniqueRows = new HashSet<>();
-        long duplicateCount = 0;
-        
-        for (Map<String, Object> row : data) {
-            String rowString = row.values().stream()
-                .map(v -> v != null ? v.toString() : "null")
-                .collect(Collectors.joining("|"));
-            
-            if (!uniqueRows.add(rowString)) {
-                duplicateCount++;
-            }
-        }
-        
-        return duplicateCount;
-    }
-
-    /**
-     * ✅ IMPROVED: Compute validity metrics
-     * 
-     * Now checks:
-     * 1. Columns with >50% nulls (original)
-     * 2. Invalid numeric values (if numeric type expected)
-     * 3. Invalid date formats (if date type expected)
+     * Compute validity metrics
      */
     private void computeValidityMetrics(List<Map<String, Object>> data,
                                         List<ColumnProfile> columnProfiles,
@@ -245,37 +130,28 @@ public class QualityMetricsService {
         long invalidValues = 0;
         long totalValues = 0;
         
+        // FIXED: Count actual invalid values from quality issues
         for (ColumnProfile profile : columnProfiles) {
             totalValues += profile.getTotalCount();
             
-            // Original check: columns with >50% nulls
-            if (profile.getNullCount() > profile.getTotalCount() * 0.5) {
+            // Count nulls as invalid if significant
+            if (profile.getNullCount() > profile.getTotalCount() * 0.3) {
                 invalidValues += profile.getNullCount();
             }
             
-            // ✅ NEW: Check for invalid numeric values
-            if ("NUMERIC".equals(profile.getDataType())) {
-                // Count outliers as potentially invalid
-                if (Boolean.TRUE.equals(profile.getHasOutliers()) && profile.getOutlierValues() != null) {
-                    // Check if outliers are actually invalid (negative for inherently positive values, etc.)
-                    for (Object outlier : profile.getOutlierValues()) {
-                        if (isPotentiallyInvalidNumber(profile.getColumnName(), outlier)) {
-                            invalidValues++;
+            // Count invalid values from quality issues
+            if (profile.getQualityIssues() != null) {
+                for (String issue : profile.getQualityIssues()) {
+                    // Extract count from "Contains X invalid numeric values"
+                    if (issue.contains("invalid numeric values")) {
+                        try {
+                            String[] parts = issue.split(" ");
+                            long count = Long.parseLong(parts[1]);
+                            invalidValues += count;
+                        } catch (Exception e) {
+                            // Ignore parsing errors
                         }
                     }
-                }
-            }
-            
-            // ✅ NEW: Check for data quality issues flagged during profiling
-            if (profile.getQualityIssues() != null && !profile.getQualityIssues().isEmpty()) {
-                // High null percentage is already counted, don't double count
-                boolean hasHighNulls = profile.getQualityIssues().stream()
-                    .anyMatch(issue -> issue.contains("null percentage"));
-                
-                if (!hasHighNulls && profile.getQualityIssues().size() > 0) {
-                    // Estimate some invalid values based on quality issues
-                    long estimatedInvalid = Math.max(1, profile.getTotalCount() / 20); // ~5% estimate
-                    invalidValues += estimatedInvalid;
                 }
             }
         }
@@ -285,47 +161,9 @@ public class QualityMetricsService {
         
         builder.invalidValues(invalidValues)
                .invalidPercentage(invalidPercentage)
-               .validityScore(Math.max(validityScore, 0.0)); // Can't be negative
+               .validityScore(Math.max(validityScore, 0.0));
         
-        log.debug("Validity score: {} (invalid: {}/{})", validityScore, invalidValues, totalValues);
-    }
-
-    /**
-     * Check if a numeric outlier is likely invalid based on column name
-     */
-    private boolean isPotentiallyInvalidNumber(String columnName, Object value) {
-        if (!(value instanceof Number)) {
-            try {
-                Double.parseDouble(value.toString());
-            } catch (NumberFormatException e) {
-                return true; // Can't parse as number
-            }
-        }
-        
-        double numValue = value instanceof Number ? 
-            ((Number) value).doubleValue() : 
-            Double.parseDouble(value.toString());
-        
-        String lowerColName = columnName.toLowerCase();
-        
-        // Check for inherently positive values
-        if (lowerColName.contains("age") || 
-            lowerColName.contains("price") ||
-            lowerColName.contains("salary") ||
-            lowerColName.contains("cost") ||
-            lowerColName.contains("amount") ||
-            lowerColName.contains("count") ||
-            lowerColName.contains("quantity")) {
-            
-            if (numValue < 0) return true; // Negative values are invalid
-            
-            // Check for unrealistic values
-            if (lowerColName.contains("age") && (numValue > 150 || numValue < 0)) {
-                return true;
-            }
-        }
-        
-        return false;
+        log.debug("Validity score: {} (found {} invalid values out of {})", validityScore, invalidValues, totalValues);
     }
 
     /**
@@ -337,16 +175,21 @@ public class QualityMetricsService {
         long inconsistentValues = 0;
         long totalValues = 0;
         
+        // FIXED: Check for low diversity (high repetition) in categorical columns
         for (ColumnProfile profile : columnProfiles) {
             totalValues += profile.getTotalCount();
             
-            // Check for inconsistencies in categorical data
             if ("CATEGORICAL".equals(profile.getDataType())) {
                 long nonNullCount = profile.getTotalCount() - profile.getNullCount();
                 
-                // High cardinality might indicate inconsistency (many different spellings, etc.)
-                if (profile.getUniqueCount() > nonNullCount * 0.8 && nonNullCount > 10) {
-                    inconsistentValues += nonNullCount * 0.1; // Estimate 10% inconsistent
+                if (nonNullCount > 10) {
+                    double uniqueRatio = (double) profile.getUniqueCount() / nonNullCount;
+                    
+                    // Low diversity (many repeated values) is inconsistent
+                    if (uniqueRatio < 0.3) {
+                        // Penalize columns with very low diversity
+                        inconsistentValues += (long) (nonNullCount * (0.3 - uniqueRatio));
+                    }
                 }
             }
         }
@@ -354,13 +197,11 @@ public class QualityMetricsService {
         double inconsistentPercentage = totalValues > 0 ? (inconsistentValues * 100.0 / totalValues) : 0.0;
         double consistencyScore = 100.0 - inconsistentPercentage;
         
-        // ⚠️ NOTE: Keeping minimum of 85% for backwards compatibility
-        // Consider removing this in future for more accurate scoring
         builder.inconsistentValues(inconsistentValues)
                .inconsistentPercentage(inconsistentPercentage)
-               .consistencyScore(Math.max(consistencyScore, 85.0));
+               .consistencyScore(Math.max(consistencyScore, 0.0));
         
-        log.debug("Consistency score: {}", consistencyScore);
+        log.debug("Consistency score: {} (found {} inconsistent values)", consistencyScore, inconsistentValues);
     }
 
     /**
@@ -383,22 +224,17 @@ public class QualityMetricsService {
                     }
                 }
             }
-            
-            long totalValues = (long) data.size() * schemaDefinition.size();
-            double accuracyScore = totalValues > 0 
-                ? (100.0 - (schemaViolations * 100.0 / totalValues))
-                : 95.0;
-            
-            builder.schemaViolations(schemaViolations)
-                   .accuracyScore(Math.max(accuracyScore, 0.0));
-            
-            log.debug("Accuracy score: {} (violations: {}/{})", accuracyScore, schemaViolations, totalValues);
-        } else {
-            // No schema provided - default to high score
-            builder.schemaViolations(0L)
-                   .accuracyScore(95.0);
-            log.debug("Accuracy score: 95.0 (no schema provided)");
         }
+        
+        long totalValues = data.size() * (schemaDefinition != null ? schemaDefinition.size() : 1);
+        double accuracyScore = totalValues > 0 
+            ? (100.0 - (schemaViolations * 100.0 / totalValues))
+            : 95.0; // Default to high score if no schema
+        
+        builder.schemaViolations(schemaViolations)
+               .accuracyScore(Math.max(accuracyScore, 0.0));
+        
+        log.debug("Accuracy score: {}", accuracyScore);
     }
 
     /**
@@ -407,11 +243,12 @@ public class QualityMetricsService {
     private void computeTimelinessMetrics(List<Map<String, Object>> data,
                                           List<ColumnProfile> columnProfiles,
                                           QualityMetrics.QualityMetricsBuilder builder) {
+        // Check if dataset has temporal columns
         boolean hasTemporalData = columnProfiles.stream()
             .anyMatch(p -> "DATE".equals(p.getDataType()));
         
         builder.hasTemporalData(hasTemporalData)
-               .timelinessScore(hasTemporalData ? 85.0 : 100.0);
+               .timelinessScore(hasTemporalData ? 85.0 : 100.0); // Default scores
         
         log.debug("Timeliness score: {}", hasTemporalData ? 85.0 : 100.0);
     }
@@ -461,12 +298,8 @@ public class QualityMetricsService {
     }
 
     private boolean isDate(String value) {
-        // ✅ IMPROVED: Support more date formats
-        return value.matches("\\d{4}-\\d{2}-\\d{2}.*") ||      // YYYY-MM-DD
-               value.matches("\\d{2}/\\d{2}/\\d{4}.*") ||      // MM/DD/YYYY
-               value.matches("\\d{2}-\\d{2}-\\d{4}.*") ||      // DD-MM-YYYY (NEW)
-               value.matches("\\d{2}\\.\\d{2}\\.\\d{4}.*") ||  // DD.MM.YYYY (NEW)
-               value.matches("\\d{4}/\\d{2}/\\d{2}.*");        // YYYY/MM/DD (NEW)
+        return value.matches("\\d{4}-\\d{2}-\\d{2}.*") || 
+               value.matches("\\d{2}/\\d{2}/\\d{4}.*");
     }
 }
 

@@ -140,9 +140,10 @@ public class DataQualityOrchestrationService {
         }
         
         // Bias Detection
+        Map<String, Object> biasReport = null;
         if (Boolean.TRUE.equals(request.getPerformBiasCheck())) {
             log.info("Detecting bias...");
-            Map<String, Object> biasReport = biasDetectionService.detectBias(data);
+            biasReport = biasDetectionService.detectBias(data);
             
             qualityMetrics.setBiasDetected((Boolean) biasReport.get("biasDetected"));
             qualityMetrics.setBiasDescription((String) biasReport.get("description"));
@@ -151,9 +152,9 @@ public class DataQualityOrchestrationService {
             );
         }
         
-        // Step 4: Health Score Aggregation
+        // Step 4: Health Score Aggregation (ENHANCED with penalties)
         log.info("Step 4/4: Computing health score...");
-        double healthScore = healthScoreService.computeHealthScore(qualityMetrics);
+        double healthScore = healthScoreService.computeHealthScore(qualityMetrics, piiFindings, biasReport);
         QualityLevel qualityLevel = healthScoreService.determineQualityLevel(healthScore);
         
         // Generate issues and recommendations
