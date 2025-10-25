@@ -1,0 +1,17 @@
+id,name,email,age,city,salary,department,join_date,is_active
+1,John Doe,john.doe@example.com,30,New York,75000,Engineering,2020-01-15,true
+2,Jane Smith,jane.smith@example.com,25,Los Angeles,65000,Marketing,2021-03-20,true
+3,Bob Johnson,bob.johnson@example.com,35,Chicago,80000,Engineering,2019-07-10,true
+4,Alice Williams,,28,Houston,70000,Sales,2020-11-05,true
+5,Charlie Brown,charlie@example.com,32,Phoenix,72000,Engineering,2021-01-18,true
+6,Diana Prince,diana.prince@example.com,29,Seattle,68000,Marketing,2020-08-22,true
+7,Eve Davis,,31,Boston,73000,Sales,2019-12-01,false
+8,Frank Miller,frank.miller@example.com,27,Denver,67000,Engineering,2021-06-30,true
+9,Grace Lee,grace.lee@example.com,33,San Francisco,85000,Engineering,2018-09-15,true
+10,Henry Wilson,henry@example.com,26,Austin,64000,Marketing,2021-11-10,true
+11,John Doe,john.doe@example.com,30,New York,75000,Engineering,2020-01-15,true
+12,Ivy Chen,ivy.chen@example.com,34,Portland,78000,Sales,2019-05-20,true
+13,Jack Robinson,jack@example.com,28,Miami,69000,Engineering,2020-09-12,true
+14,Kate Anderson,,29,Atlanta,71000,Marketing,2021-02-28,false
+15,Leo Martinez,leo.martinez@example.com,31,Dallas,74000,Sales,2020-04-17,true
+

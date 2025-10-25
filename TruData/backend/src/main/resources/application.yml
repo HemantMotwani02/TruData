@@ -1,0 +1,120 @@
+spring:
+  application:
+    name: trudata
+  
+  profiles:
+    active: dev
+  
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 100MB
+      max-request-size: 100MB
+      file-size-threshold: 2KB
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.H2Dialect
+  
+  datasource:
+    url: jdbc:h2:mem:dataquality
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+  
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+# Application Configuration
+app:
+  security:
+    jwt:
+      secret-key: ${JWT_SECRET:your-256-bit-secret-key-change-in-production}
+      expiration: 86400000 # 24 hours
+      refresh-expiration: 604800000 # 7 days
+    
+    cors:
+      allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+      allowed-methods: GET,POST,PUT,DELETE,OPTIONS
+      allowed-headers: "*"
+      allow-credentials: true
+  
+  data-quality:
+    max-rows-to-process: 1000000
+    max-file-size: 100MB
+    supported-formats: csv,json,xlsx,parquet
+    temp-storage-path: ${TEMP_STORAGE:/tmp/data-quality}
+    url-download-timeout: 30000
+    
+    # PII Detection patterns
+    pii:
+      enabled: true
+      patterns:
+        email: "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b"
+        phone: "\\b\\d{3}[-.]?\\d{3}[-.]?\\d{4}\\b"
+        ssn: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+        credit-card: "\\b\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}\\b"
+    
+    # Quality thresholds
+    thresholds:
+      completeness:
+        excellent: 0.95
+        good: 0.80
+        fair: 0.60
+      uniqueness:
+        excellent: 0.95
+        good: 0.85
+        fair: 0.70
+      validity:
+        excellent: 0.95
+        good: 0.85
+        fair: 0.70
+
+# Management & Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Logging
+logging:
+  level:
+    root: INFO
+    com.aidataquality: DEBUG
+    org.springframework.security: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/trudata.log
+    max-size: 10MB
+    max-history: 30
+
+# API Documentation
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+

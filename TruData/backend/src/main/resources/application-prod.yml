@@ -1,0 +1,21 @@
+server:
+  port: 8080
+  error:
+    include-message: never
+    include-stacktrace: never
+
+spring:
+  h2:
+    console:
+      enabled: false
+
+logging:
+  level:
+    root: WARN
+    com.aidataquality: INFO
+
+app:
+  security:
+    cors:
+      allowed-origins: ${ALLOWED_ORIGINS}
+
