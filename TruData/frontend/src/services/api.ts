@@ -1,7 +1,13 @@
 import axios from 'axios';
 import { DataQualityResponse } from '../types';
 
-const API_BASE_URL = '/api/v1/data-quality';
+
+// Use environment variable (falls back to local or Render URL)
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL
+    ? `${import.meta.env.VITE_API_URL}/api/v1/data-quality`
+    : '/api/v1/data-quality';
+// const API_BASE_URL = '/api/v1/data-quality';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

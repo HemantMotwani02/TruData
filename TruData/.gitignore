@@ -8,6 +8,7 @@ node_modules/
 build/
 dist/
 package-lock.json
+.env
 
 # System files
 .DS_Store
