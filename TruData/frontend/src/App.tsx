@@ -52,7 +52,7 @@ function App() {
             <span className="font-semibold">TruData</span> v1.0.0 | Enterprise-grade data quality assurance platform
           </p>
           <p className="text-xs text-gray-400 mt-2">
-            Powered by Spring Boot & React | © 2025 TruData. All rights reserved.
+            © 2025 TruData. All rights reserved.
           </p>
         </div>
       </footer>
