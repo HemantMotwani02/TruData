@@ -60,7 +60,7 @@ export default function DuplicateAnalysisChart({ analysis }: DuplicateAnalysisCh
                 outerRadius={70}
                 dataKey="value"
               >
-                {duplicateData.map((entry, index) => (
+                {duplicateData.map((_, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index]} />
                 ))}
               </Pie>

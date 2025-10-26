@@ -91,7 +91,7 @@ export default function ChartsSection({ metrics, columnProfiles }: ChartsSection
                 fill="#8884d8"
                 dataKey="value"
               >
-                {dataTypeData.map((entry, index) => (
+                {dataTypeData.map((_, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
